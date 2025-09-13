@@ -318,15 +318,27 @@ HTML = '''
         
         // Show the image as preview directly from the URL
         const preview = document.getElementById('preview');
+        
+        // Set up event handlers for this specific import
         preview.onload = function() {
             // Image loaded successfully, show preview
             preview.style.display = 'block';
             document.getElementById('remove-preview').style.display = 'block';
             urlInput.value = ''; // Clear the input
+            
+            // Clear the event handlers to prevent issues later
+            preview.onload = null;
+            preview.onerror = null;
         };
         
         preview.onerror = function() {
-            alert('Failed to load image from URL. Please check the URL and try again.');
+            // Only show error if this was a genuine load failure during import
+            if (preview.src === imageUrl) {
+                alert('Failed to load image from URL. Please check the URL and try again.');
+            }
+            // Clear the event handlers
+            preview.onload = null;
+            preview.onerror = null;
         };
         
         // Set the image source to the URL for preview
@@ -353,6 +365,12 @@ HTML = '''
     
     function clearPreview() {
         const preview = document.getElementById('preview');
+        
+        // Clear the error and load event handlers to prevent unwanted alerts
+        preview.onerror = null;
+        preview.onload = null;
+        
+        // Clear the preview
         preview.src = '';
         preview.style.display = 'none';
         preview.dataset.importUrl = ''; // Clear import URL data
