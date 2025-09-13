@@ -3,6 +3,8 @@ import os
 import threading
 import subprocess
 import uuid
+import requests
+from urllib.parse import urlparse
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -177,9 +179,12 @@ HTML = '''
                     <button id="remove-preview" type="button" style="display:none; position:absolute; top:8px; right:8px; background:#fff; border:none; border-radius:50%; width:32px; height:32px; box-shadow:0 2px 8px rgba(0,0,0,0.12); cursor:pointer; font-size:1.2rem; color:#2563eb;">&#10006;</button>
                 </div>
             </div>
+            <div class="import-url">
+                <input type="url" id="url-input" placeholder="Paste image URL here..." />
+                <button type="button" onclick="importFromURL()">Import</button>
+            </div>
             <div class="card-footer">
                 <button type="button" class="footer-btn primary" onclick="startUpload()">Upload</button>
-                <button type="button" class="footer-btn">Import</button>
             </div>
         </form>
         <div style="margin:16px 32px;">
@@ -194,22 +199,60 @@ HTML = '''
     <script>
     let taskId = null;
     function startUpload() {
-        const formData = new FormData(document.getElementById('upload-form'));
-        document.getElementById('progress-status').innerText = 'Uploading...';
-        document.getElementById('progress-bar-container').style.display = 'block';
-        document.getElementById('progress-log').style.display = 'block';
-        fetch('/ajax_upload', {
-            method: 'POST',
-            body: formData
-        }).then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                taskId = data.task_id;
-                pollProgress();
-            } else {
-                document.getElementById('progress-status').innerText = 'Upload failed.';
-            }
-        });
+        const preview = document.getElementById('preview');
+        const fileInput = document.getElementById('file-input');
+        
+        // Check if we have an imported URL image
+        if (preview.dataset.importUrl && preview.style.display === 'block') {
+            // Process imported URL image
+            const imageUrl = preview.dataset.importUrl;
+            
+            document.getElementById('progress-status').innerText = 'Importing and processing image...';
+            document.getElementById('progress-bar-container').style.display = 'block';
+            document.getElementById('progress-log').style.display = 'block';
+            
+            fetch('/import_url', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({url: imageUrl})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    taskId = data.task_id;
+                    pollProgress();
+                } else {
+                    document.getElementById('progress-status').innerText = 'Import failed: ' + (data.error || 'Unknown error');
+                }
+            })
+            .catch(err => {
+                document.getElementById('progress-status').innerText = 'Import failed: Network error';
+                console.error('Import failed:', err);
+            });
+        } else if (fileInput.files && fileInput.files[0]) {
+            // Process uploaded file
+            const formData = new FormData(document.getElementById('upload-form'));
+            document.getElementById('progress-status').innerText = 'Uploading...';
+            document.getElementById('progress-bar-container').style.display = 'block';
+            document.getElementById('progress-log').style.display = 'block';
+            
+            fetch('/ajax_upload', {
+                method: 'POST',
+                body: formData
+            }).then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    taskId = data.task_id;
+                    pollProgress();
+                } else {
+                    document.getElementById('progress-status').innerText = 'Upload failed.';
+                }
+            });
+        } else {
+            alert('Please select a file or import an image from URL first.');
+        }
     }
 
     function pollProgress() {
@@ -256,6 +299,43 @@ HTML = '''
             });
     }
 
+    function importFromURL() {
+        const urlInput = document.getElementById('url-input');
+        const imageUrl = urlInput.value.trim();
+        
+        if (!imageUrl) {
+            alert('Please enter an image URL');
+            return;
+        }
+        
+        // Validate URL format
+        try {
+            new URL(imageUrl);
+        } catch {
+            alert('Please enter a valid URL');
+            return;
+        }
+        
+        // Show the image as preview directly from the URL
+        const preview = document.getElementById('preview');
+        preview.onload = function() {
+            // Image loaded successfully, show preview
+            preview.style.display = 'block';
+            document.getElementById('remove-preview').style.display = 'block';
+            urlInput.value = ''; // Clear the input
+        };
+        
+        preview.onerror = function() {
+            alert('Failed to load image from URL. Please check the URL and try again.');
+        };
+        
+        // Set the image source to the URL for preview
+        preview.src = imageUrl;
+        
+        // Store the URL for later processing
+        preview.dataset.importUrl = imageUrl;
+    }
+
     function previewFile(event) {
         const input = event.target;
         if (input.files && input.files[0]) {
@@ -264,17 +344,24 @@ HTML = '''
                 const preview = document.getElementById('preview');
                 preview.src = e.target.result;
                 preview.style.display = 'block';
+                preview.dataset.importUrl = ''; // Clear import URL data
                 document.getElementById('remove-preview').style.display = 'block';
             }
             reader.readAsDataURL(input.files[0]);
         }
     }
-    document.getElementById('remove-preview').onclick = function() {
-        document.getElementById('preview').src = '';
-        document.getElementById('preview').style.display = 'none';
+    
+    function clearPreview() {
+        const preview = document.getElementById('preview');
+        preview.src = '';
+        preview.style.display = 'none';
+        preview.dataset.importUrl = ''; // Clear import URL data
         document.getElementById('remove-preview').style.display = 'none';
         document.getElementById('file-input').value = '';
+        document.getElementById('url-input').value = '';
     }
+    
+    document.getElementById('remove-preview').onclick = clearPreview;
     </script>
 </body>
 </html>
@@ -346,6 +433,61 @@ def ajax_upload():
     thread.start()
     return jsonify({'success': True, 'task_id': task_id})
 
+@app.route('/import_url', methods=['POST'])
+def import_url():
+    import requests
+    from urllib.parse import urlparse
+    
+    data = request.get_json()
+    if not data or 'url' not in data:
+        return jsonify({'success': False, 'error': 'No URL provided'})
+    
+    image_url = data['url']
+    
+    try:
+        # Download image from URL
+        response = requests.get(image_url, stream=True, timeout=30)
+        response.raise_for_status()
+        
+        # Check if it's an image
+        content_type = response.headers.get('content-type', '')
+        if not content_type.startswith('image/'):
+            return jsonify({'success': False, 'error': 'URL does not point to an image'})
+        
+        # Generate filename from URL
+        parsed_url = urlparse(image_url)
+        filename = os.path.basename(parsed_url.path)
+        if not filename or '.' not in filename:
+            # Generate filename based on content type
+            ext = content_type.split('/')[-1]
+            if ext in ['jpeg', 'jpg', 'png', 'webp']:
+                filename = f'imported_image_{uuid.uuid4().hex[:8]}.{ext}'
+            else:
+                filename = f'imported_image_{uuid.uuid4().hex[:8]}.jpg'
+        
+        filename = secure_filename(filename)
+        save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        
+        # Save the image
+        with open(save_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        # Start processing
+        task_id = str(uuid.uuid4())
+        task_status[task_id] = {'status': 'Starting...', 'log': ''}
+        thread = threading.Thread(target=run_batch, args=(save_path, task_id))
+        thread.start()
+        
+        # Return preview URL for the imported image
+        preview_url = f'/static/uploads/{filename}'
+        return jsonify({'success': True, 'task_id': task_id, 'preview_url': preview_url})
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify({'success': False, 'error': f'Failed to download image: {str(e)}'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Error processing URL: {str(e)}'})
+
 @app.route('/ajax_progress')
 def ajax_progress():
     task_id = request.args.get('task_id')
@@ -359,6 +501,10 @@ def ajax_outputs():
     task_id = request.args.get('task_id')
     files = task_outputs.get(task_id, [])
     return jsonify({'files': files})
+
+@app.route('/static/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/download_output/<task_id>/<filename>')
 def download_output(task_id, filename):
