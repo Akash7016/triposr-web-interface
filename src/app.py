@@ -1,0 +1,369 @@
+from flask import Flask, render_template_string, request, jsonify, send_from_directory
+import os
+import threading
+import subprocess
+import uuid
+from werkzeug.utils import secure_filename
+
+app = Flask(__name__)
+
+UPLOAD_FOLDER = 'static/uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+task_status = {}
+task_outputs = {}
+
+HTML = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Photos</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-image: url('/static/bg.jpg');
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-attachment: fixed;
+            background-size: cover;
+            min-height: 100vh;
+            margin: 0;
+            font-family: 'Inter', Arial, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            max-width: 480px;
+            box-shadow: 0 8px 32px rgba(44,83,100,0.12);
+            padding: 0 0 24px 0;
+        }
+        .card-header {
+            padding: 32px 32px 0 32px;
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #222;
+        }
+        .upload-area {
+            margin: 24px 32px 0 32px;
+            border: 2px dashed #dbeafe;
+            border-radius: 12px;
+            background: #f5f8ff;
+            padding: 32px 0 24px 0;
+            text-align: center;
+        }
+        .upload-icon {
+            width: 64px;
+            margin-bottom: 12px;
+            opacity: 0.8;
+        }
+        .upload-area-text {
+            color: #64748b;
+            font-size: 1rem;
+        }
+        .browse-link {
+            color: inherit;
+            text-decoration: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .file-types {
+            font-size: 0.95rem;
+            color: #94a3b8;
+            margin-top: 6px;
+        }
+        .divider {
+            margin: 24px 0 16px 0;
+            border: none;
+            border-top: 1px solid #e5e7eb;
+        }
+        .import-url {
+            display: flex;
+            gap: 8px;
+            margin: 24px 32px 16px 32px;
+        }
+        .import-url input {
+            flex: 1;
+            padding: 8px;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            font-size: 1rem;
+        }
+        .import-url button {
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 18px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .card-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            margin: 32px 32px 0 32px;
+        }
+        .footer-btn {
+            background: #f3f4f6;
+            color: #222;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 24px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .footer-btn.primary {
+            background: #2563eb;
+            color: #fff;
+        }
+        .progress-bar {
+            width: 90%;
+            background: #f3f4f6;
+            border-radius: 8px;
+            margin: 18px auto 0 auto;
+            height: 8px;
+            position: relative;
+        }
+        .progress {
+            background: #2563eb;
+            height: 8px;
+            border-radius: 8px;
+            transition: width 0.3s;
+        }
+        .preview-img {
+            margin: 18px auto 0 auto;
+            max-width: 90%;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            display: block;
+        }
+        .filename-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 18px 0 0 32px;
+        }
+        .filename-img {
+            width: 32px;
+            height: 32px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #e5e7eb;
+        }
+        .filename-text {
+            font-size: 1rem;
+            color: #222;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-header">Upload Photos</div>
+        <form id="upload-form" enctype="multipart/form-data" onsubmit="return false;">
+            <div class="upload-area">
+                <img src="https://img.icons8.com/ios/100/image--v2.png" class="upload-icon" alt="Upload Icon" />
+                <div class="upload-area-text">Drop your image here, or <span class="browse-link" onclick="document.getElementById('file-input').click();">browse</span></div>
+                <div class="file-types">Supported: PNG, JPG, JPEG, WEBP</div>
+                <input type="file" id="file-input" name="file" accept="image/*" style="display:none;" onchange="previewFile(event)">
+                <div style="position:relative; display:inline-block;">
+                    <img id="preview" class="preview-img" style="display:none;" />
+                    <button id="remove-preview" type="button" style="display:none; position:absolute; top:8px; right:8px; background:#fff; border:none; border-radius:50%; width:32px; height:32px; box-shadow:0 2px 8px rgba(0,0,0,0.12); cursor:pointer; font-size:1.2rem; color:#2563eb;">&#10006;</button>
+                </div>
+            </div>
+            <div class="card-footer">
+                <button type="button" class="footer-btn primary" onclick="startUpload()">Upload</button>
+                <button type="button" class="footer-btn">Import</button>
+            </div>
+        </form>
+        <div style="margin:16px 32px;">
+            <div id="progress-bar-container" style="width:100%;height:8px;background:#f3f4f6;border-radius:8px;margin:0 0 8px 0;display:none;">
+                <div id="progress-bar" style="height:8px;width:0%;background:#2563eb;border-radius:8px;transition:width 0.3s;"></div>
+            </div>
+            <div id="progress-status" style="font-weight:600;color:#2563eb;margin-bottom:8px;"></div>
+            <pre id="progress-log" style="background:#f5f8ff;border:1px solid #e0e7ff;border-radius:8px;padding:12px;max-height:200px;overflow-y:auto;font-size:0.85rem;color:#222;white-space:pre-wrap;display:none;"></pre>
+        </div>
+        <div id="output-list" style="margin:16px 32px;"></div>
+    </div>
+    <script>
+    let taskId = null;
+    function startUpload() {
+        const formData = new FormData(document.getElementById('upload-form'));
+        document.getElementById('progress-status').innerText = 'Uploading...';
+        document.getElementById('progress-bar-container').style.display = 'block';
+        document.getElementById('progress-log').style.display = 'block';
+        fetch('/ajax_upload', {
+            method: 'POST',
+            body: formData
+        }).then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                taskId = data.task_id;
+                pollProgress();
+            } else {
+                document.getElementById('progress-status').innerText = 'Upload failed.';
+            }
+        });
+    }
+
+    function pollProgress() {
+        if (!taskId) return;
+        fetch(`/ajax_progress?task_id=${taskId}`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('progress-status').innerText = data.status;
+                document.getElementById('progress-log').innerText = data.log;
+                
+                // Progress bar logic: estimate based on log content and status
+                let percent = 0;
+                if (data.status === 'Processing...') {
+                    // Estimate progress based on log length (crude but works)
+                    percent = Math.min(85, Math.floor(data.log.length / 100));
+                } else if (data.status === 'Completed') {
+                    percent = 100;
+                } else if (data.status === 'Failed' || data.status.startsWith('Error')) {
+                    percent = 100;
+                }
+                document.getElementById('progress-bar').style.width = percent + '%';
+                
+                // Continue polling if still processing
+                if (data.status === 'Processing...' || data.status === 'Starting...') {
+                    setTimeout(pollProgress, 1000);
+                } else {
+                    // Task completed, get outputs
+                    fetch(`/ajax_outputs?task_id=${taskId}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.files.length > 0) {
+                                let outHtml = '<h3 style="margin-bottom:8px;">Download Results:</h3>';
+                                data.files.forEach(f => {
+                                    outHtml += `<div style="margin:4px 0;"><a href="/download_output/${taskId}/${f}" download style="color:#2563eb;text-decoration:none;font-weight:500;">${f}</a></div>`;
+                                });
+                                document.getElementById('output-list').innerHTML = outHtml;
+                            }
+                        });
+                }
+            })
+            .catch(err => {
+                document.getElementById('progress-status').innerText = 'Error checking progress';
+                console.error('Progress check failed:', err);
+            });
+    }
+
+    function previewFile(event) {
+        const input = event.target;
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const preview = document.getElementById('preview');
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+                document.getElementById('remove-preview').style.display = 'block';
+            }
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+    document.getElementById('remove-preview').onclick = function() {
+        document.getElementById('preview').src = '';
+        document.getElementById('preview').style.display = 'none';
+        document.getElementById('remove-preview').style.display = 'none';
+        document.getElementById('file-input').value = '';
+    }
+    </script>
+</body>
+</html>
+'''
+
+def run_batch(image_path, task_id):
+    task_status[task_id] = {'status': 'Processing...', 'log': 'Starting TripoSR processing...\n'}
+    try:
+        # Convert to absolute path
+        abs_image_path = os.path.abspath(image_path)
+        
+        # Create output directory for this task
+        output_dir = os.path.join('C:\\ai3d\\TripoSR', 'output', task_id)
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Call run_fast.ps1 directly with the uploaded image
+        cmd = [
+            'powershell.exe', 
+            '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', r'C:\ai3d\TripoSR\run_fast.ps1',
+            '-img', abs_image_path,
+            '-out', output_dir
+        ]
+        
+        # Stream output in real-time
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, 
+                                 text=True, universal_newlines=True, bufsize=1)
+        
+        log_lines = [f'Starting TripoSR processing...\nImage: {abs_image_path}\nOutput: {output_dir}\n']
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                line = line.rstrip() + '\n'
+                log_lines.append(line)
+                task_status[task_id] = {'status': 'Processing...', 'log': ''.join(log_lines)}
+        
+        retcode = process.poll()
+        final_status = 'Completed' if retcode == 0 else 'Failed'
+        task_status[task_id] = {'status': final_status, 'log': ''.join(log_lines)}
+        
+        # List output files
+        if os.path.exists(output_dir):
+            task_outputs[task_id] = [f for f in os.listdir(output_dir) if f.endswith(('.obj', '.png', '.jpg', '.mtl'))]
+        else:
+            task_outputs[task_id] = []
+            
+    except Exception as e:
+        error_msg = f'Error occurred: {str(e)}\n'
+        task_status[task_id] = {'status': f'Error: {str(e)}', 'log': error_msg}
+        task_outputs[task_id] = []
+
+@app.route('/')
+def index():
+    return render_template_string(HTML)
+
+@app.route('/ajax_upload', methods=['POST'])
+def ajax_upload():
+    file = request.files.get('file')
+    if not file:
+        return jsonify({'success': False})
+    filename = secure_filename(file.filename)
+    save_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(save_path)
+    task_id = str(uuid.uuid4())
+    task_status[task_id] = {'status': 'Starting...', 'log': ''}
+    thread = threading.Thread(target=run_batch, args=(save_path, task_id))
+    thread.start()
+    return jsonify({'success': True, 'task_id': task_id})
+
+@app.route('/ajax_progress')
+def ajax_progress():
+    task_id = request.args.get('task_id')
+    info = task_status.get(task_id)
+    if info is None:
+        return jsonify({'status': 'Unknown', 'log': ''})
+    return jsonify({'status': info['status'], 'log': info['log']})
+
+@app.route('/ajax_outputs')
+def ajax_outputs():
+    task_id = request.args.get('task_id')
+    files = task_outputs.get(task_id, [])
+    return jsonify({'files': files})
+
+@app.route('/download_output/<task_id>/<filename>')
+def download_output(task_id, filename):
+    output_dir = os.path.join('C:\\ai3d\\TripoSR', 'output', task_id)
+    return send_from_directory(output_dir, filename, as_attachment=True)
+
+if __name__ == '__main__':
+    app.run(debug=True)
