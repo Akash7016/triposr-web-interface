@@ -26,38 +26,67 @@ HTML = '''
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         body {
-            background-image: url('/static/bg.jpg');
-            background-repeat: no-repeat;
-            background-position: center center;
-            background-attachment: fixed;
-            background-size: cover;
-            min-height: 100vh;
             margin: 0;
             font-family: 'Inter', Arial, sans-serif;
+            min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            position: relative;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.3) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(120, 119, 198, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
         }
         .card {
-            background: #fff;
-            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
             max-width: 480px;
-            box-shadow: 0 8px 32px rgba(44,83,100,0.12);
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.1),
+                0 2px 16px rgba(0, 0, 0, 0.08);
             padding: 0 0 24px 0;
+            position: relative;
+            z-index: 1;
         }
         .card-header {
-            padding: 32px 32px 0 32px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 24px 32px;
             font-size: 1.3rem;
             font-weight: 600;
-            color: #222;
+            border-radius: 20px 20px 0 0;
+            margin: 0;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
         .upload-area {
-            margin: 24px 32px 0 32px;
-            border: 2px dashed #dbeafe;
-            border-radius: 12px;
-            background: #f5f8ff;
-            padding: 32px 0 24px 0;
+            margin: 32px 32px 0 32px;
+            border: 2px dashed rgba(102, 126, 234, 0.3);
+            border-radius: 16px;
+            background: linear-gradient(145deg, rgba(245, 248, 255, 0.8), rgba(239, 246, 255, 0.6));
+            padding: 40px 20px 32px 20px;
             text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        .upload-area:hover {
+            border-color: rgba(102, 126, 234, 0.6);
+            background: linear-gradient(145deg, rgba(239, 246, 255, 0.9), rgba(219, 234, 254, 0.7));
+            transform: translateY(-2px);
         }
         .upload-icon {
             width: 64px;
@@ -69,10 +98,14 @@ HTML = '''
             font-size: 1rem;
         }
         .browse-link {
-            color: inherit;
+            color: #667eea;
             text-decoration: none;
             cursor: pointer;
-            font-weight: bold;
+            font-weight: 600;
+            transition: color 0.2s ease;
+        }
+        .browse-link:hover {
+            color: #764ba2;
         }
         .file-types {
             font-size: 0.95rem;
@@ -86,24 +119,39 @@ HTML = '''
         }
         .import-url {
             display: flex;
-            gap: 8px;
+            gap: 12px;
             margin: 24px 32px 16px 32px;
+            align-items: center;
         }
         .import-url input {
             flex: 1;
-            padding: 8px;
-            border-radius: 8px;
-            border: 1px solid #e5e7eb;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 2px solid rgba(102, 126, 234, 0.2);
             font-size: 1rem;
+            background: rgba(255, 255, 255, 0.8);
+            transition: all 0.2s ease;
+        }
+        .import-url input:focus {
+            outline: none;
+            border-color: #667eea;
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
         .import-url button {
-            background: #2563eb;
-            color: #fff;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
             border: none;
-            border-radius: 8px;
-            padding: 8px 18px;
-            font-weight: 500;
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-weight: 600;
             cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+        .import-url button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
         }
         .card-footer {
             display: flex;
@@ -112,17 +160,24 @@ HTML = '''
             margin: 32px 32px 0 32px;
         }
         .footer-btn {
-            background: #f3f4f6;
-            color: #222;
+            background: rgba(243, 244, 246, 0.8);
+            color: #374151;
             border: none;
-            border-radius: 8px;
-            padding: 8px 24px;
-            font-weight: 500;
+            border-radius: 12px;
+            padding: 12px 32px;
+            font-weight: 600;
             cursor: pointer;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(10px);
         }
         .footer-btn.primary {
-            background: #2563eb;
-            color: #fff;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+        .footer-btn.primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5);
         }
         .progress-bar {
             width: 90%;
